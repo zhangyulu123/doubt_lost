@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv = "X-UA-Compatible" content = "IE = edge" charset = "UTF-8"/> 
+    <title>Doubt_Lost</title>
+    <link rel = "stylesheet" href = "../src/main/webapp/pages/css/wanma.css"/>
+		<link rel = "stylesheet" href = "../src/main/webapp/tools/easyui/themes/default/easyui.css"/>
+		<link rel = "stylesheet" href = "../src/main/webapp/tools/easyui/themes/icon.css"/>
+		
+		<script type = "text/javascript" src = "../src/main/webapp/tools/tssJS/tssJS.all.js"></script>
+		
+		<script type = "text/javascript" src = "../src/main/webapp/tools/easyui/jquery.min.js"></script>
+		<script type = "text/javascript" src = "../src/main/webapp/tools/easyui/jquery.easyui.min.js"></script>
+		<script type = "text/javascript" src = "../src/main/webapp/tools/easyui/easyui-lang-zh_CN.js"></script>
+		<script type = "text/javascript" src = "../src/main/webapp/tools/pub_per.js"></script>
+		
+		<script type = "text/javascript" src = "../src/main/webapp/more/bi_template/common.js"></script>
+		<script type = "text/javascript" src = "../src/main/webapp/pages/js/common.js"></script>
+<style type="text/css">
+    html,body{
+        width: 100%;
+        height: 100%;
+    }
+</style>
+
+<script type="text/javascript">
+	var URL_1 = "http://10.9.45.68:8080/tss/data/json/2150?noCache=true", //遗失率树
+		URL_2 = "http://10.9.45.68:8080/tss/data/json/2153?noCache=true",//申诉明细
+		URL_3 = "http://10.9.45.68:8080/tss/data/json/2212?noCache=true",//实时差错明细
+		URL_4 = "http://10.9.45.66:8080/tss/data/json/3309?noCache=true", //申诉提交
+		URL_5 = "http://10.9.45.68:8080/tss/data/json/2320?noCache=true"; //审批界面
+	
+	//树状图按条件查询
+    function DoSearch(){
+        params={
+            param1:$('#_date_from').datebox('getValue'),
+			param2:$('#_date_to').datebox('getValue'),
+            param3:$('#_org').combobox('getValue')=='全网'?-1:$('#_org').combobox('getValue')
+        }
+		tssJS.ajax({
+			url : URL_1,
+			params : {param1:"2017-01-10",param2:"2017-01-12",param3:'-1'},//searchboxParams,
+			method : "POST",
+			type : "json",
+			waiting : true,
+			ondata : function() {
+				main_data = this.getResponseJSON();
+				var rows = [], temp = {};
+				for(var i = 0, len = main_data.length; i < len; i++){
+					temp = main_data[i];
+					temp["_parentId"] = temp["pid"];
+					rows.push(temp);
+				}
+				$('#lostrate').treegrid({
+					fit: true,
+					idField: 'id',
+					treeField: 'name',
+					data: {"rows":main_data},
+					onDblClickRow : function(row){
+						//点击最小等级载入数据
+						if(row.dj == 0){
+							showgrid(URL_2,params.param1,params.param2,row.duty_site_name,$("#appealtable"));
+							showgrid(URL_3,'','',row.duty_site_name,$("#gaptable"));
+						}
+					}
+				});
+
+			}
+		})
+    }
+
+    //申诉明细和实时差错明细写入
+    function showgrid(URL,from_date,to_date,site_name, tableobj){
+        var gridparams = {};
+		if(URL == URL_2){
+			var rownum = 10;
+			gridparams = {param1:from_date, param2: to_date, param3:site_name};
+		}else{
+			var rownum = 20;
+			gridparams = {param1:site_name};	
+		}
+		
+        tssJS.ajax({
+                url : URL,
+                params : gridparams,
+                method : "POST",
+                type : "json",
+                waiting : true,
+                ondata : function() {
+					var data = this.getResponseJSON();
+					//tableobj.datagrid("loadData",data.slice(0,10));
+					tableobj.datagrid({
+						//fit: true,
+						striped: true,
+						singleSelect: true,
+						pagination: true,
+						data: data.slice(0,rownum),
+						onDblClickCell:function(index,field,value){
+							var ed = $("#appealtable").datagrid("getSelected");
+							if(ed["disabled"]){
+								if(ed["result"] == null){
+									$.messager.alert("提示","申诉已过期,无法提交申诉");
+								}else{
+									$.messager.alert("提示","申诉已审批,不得重复申诉");
+								}
+								return false;
+							}
+							if(field == "appeal_status"){
+								$('#appealdlg').dialog('open');
+								selindex = index;
+								
+								$("#fm").form("load",ed);
+								$("#appeal_person").textbox("setValue",login);
+							}
+						}
+					})
+
+					var pager = tableobj.datagrid("getPager"); 
+                        $(pager).pagination({ 
+                            total:data.length, 
+                            pageSize: rownum,//每页显示的记录条数，默认为10 
+                            pageList: [10,20,30,50],//可以设置每页记录条数的列表 
+                            beforePageText: '第',//页数文本框前显示的汉字 
+                            afterPageText: '页 共{pages}页', 
+                            displayMsg: '当前显示{from}~{to}条 共{total}条', 
+                            showRefresh:true, //去掉页数旁边的刷新按钮
+                            onRefresh: function(){ tableobj.datagrid("clearSelections").datagrid("clearChecked"); },//刷新按钮操作
+                            onSelectPage:function (pageNo, pageSize) { 
+                                var start = (pageNo - 1) * pageSize; 
+                                var end = start + pageSize; 
+                                tableobj.datagrid("loadData", data.slice(start, end)); 
+                                pager.pagination('refresh', { 
+                                    total:data.length, 
+                                    pageNumber:pageNo 
+                                }); 
+                            }
+                        });
+                }
+            })
+			//差错明细根据急缓设置不同颜色
+			if(URL == URL_3){
+				tableobj.datagrid({	rowStyler: function(index, row){
+							if(row.days == 3){
+								return "background-color:rgba(242,159,63,0.5);"
+							}else if(row.days == 2){
+								return "background-color:rgba(255,233,87,0.5);"
+							}else{
+								return "background-color:rgba(190,255,174,0.5);"
+							}
+						}})
+			}
+    }
+
+
+    $(function(){
+        
+		//审批权限
+		tssJS.ajax({
+			url : "http://10.9.45.68:8080/tss/auth/user/has",
+			method : "GET",
+			type : "json",
+			ondata: function(){
+				var info = this.getResponseJSON();
+				login = info[4]+"-"+info[3].toUpperCase();
+				var authArray = ['BG235809','BL03586','BL02938'];
+				if($.inArray(info[3].toUpperCase(),authArray) != -1){
+					var targetObj = $("#tb").append("<a href='#' class='easyui-linkbutton' iconCls='icon-man' style='width:40' onclick='DoJudge()'>审批</a>")
+					$.parser.parse(targetObj);
+				}
+				
+				var params = {param1:"2017-01-10",param2:"2017-01-12",param3:"-1"}
+				/*		
+				globalValiable = window.parent.globalValiable;
+				if(globalValiable && globalValiable.queryParams){
+					var params = globalValiable.queryParams;
+				}*/
+				//选择框默认值,放在此处避免重新渲染组件导致数据缺失
+				$('#_date_from').datebox('setValue',params.param1);
+				$('#_date_to').datebox('setValue',params.param2);
+				$('#_org').combobox('setValue','全网');
+				DoSearch();
+			}
+		});
+		
+        //组织筛选框加载
+        $('#_org').combobox({
+            url : "http://10.9.45.68:8080/tss/service/orgs",
+            required : true,
+            editable:true,
+            // value:oval,
+            panelHeight: '200',
+            valueField:'name',
+            textField:'name',
+            onChange : function(newValue, oldValue){
+                //console.log(newValue)
+                if (newValue) {
+                    $('#_center').combobox({
+                        url : "http://10.9.45.68:8080/tss/service/centers",
+                        queryParams: { org : newValue},
+                        method : 'POST',
+                        valueField : 'name',
+                        textField : 'name',
+                        // value:cval,
+                        required : true,
+                        editable : true,
+                        multiple : false,
+                        loadFilter: function(data){
+                            var _data = [];
+                            data.each(function(i, item) {
+                                if(item.name.indexOf("退网") < 0 && item.name.indexOf("测试") ) {
+                                    _data.push(item);
+                                }
+                            });
+                            return _data;                      
+                        },
+                        onChange: function(newValue2, oldValue2) {
+                            //console.log(newValue2, oldValue2)
+                            if (newValue2) {
+                                $('#_site').combobox({
+                                    url : "http://10.9.45.68:8080/tss/service/sites",
+                                    queryParams: { param1 : newValue2},
+                                    method : 'POST',
+                                    valueField : 'name',
+                                    textField : 'name',
+                                    required : true,
+                                    editable : true,
+                                    multiple : false,
+                                    loadFilter: function(data2) {
+                                        var _data2 = [];
+                                        data2.each(function(i, item) {
+                                            if(item.name.indexOf("退网") < 0 && item.name.indexOf("测试") ) {
+                                                _data2.push(item);
+                                            }
+                                        });
+                                        return _data2;
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+            }
+        });
+		
+		$("#lostrate").mouseover(function(){
+			
+		})
+        
+    })
+	
+	//数据提交至数据库
+	function  _submit(type){
+		var submitparams = {};
+		if(type == 1){
+			if($("textarea").val() == ""){
+				$.messager.alert("警告","申诉原因不能为空");
+				return false;
+			}
+			submitparams = {
+			param1: $("input[name = 'duty_code']").val(),
+			param2: $("#appeal_person").val(),
+			param3: $("textarea").val(),
+			param4: "none",//审批意见默认状态
+			param5: type
+			}
+		}else{
+			var p = $('#judgetable').datagrid("getRows")[editIndex];
+			if(p["result"] == ""){
+				$.messager.alert("警告","审批结果不能为空");
+				return false;
+			}
+			submitparams = {
+			param1: p["duty_code"],
+			param2: login,
+			param3: p["result"],
+			param4: (p["suggestion"] == ""?"none":p["suggestion"]),
+			param5: type
+			}
+		}
+		
+		
+		tssJS.ajax({
+			url : URL_4,
+			params : submitparams,
+			method : "POST",
+			type : "json",
+			waiting : true,
+			ondata :function(){
+				if(this.getResponseJSON()){
+					$.messager.show({title: '提示',msg: '操作成功！'});
+					//更新申诉明细页面数据
+					if(type == 1){
+						$("#appealdlg").dialog("close");
+						$("#appealtable").datagrid("updateRow",{index:selindex,row:{appeal_status:"已申诉",reason:$("textarea").val()}});
+					}
+					
+				}else{
+					$.messager.alert("警告","操作失败,请重试")
+				}
+				
+			}
+		})
+		
+	}
+	
+	//审批操作
+	function DoJudge(){
+		$("#judgedlg").dialog("open");
+		tssJS.ajax({
+			url : URL_5,
+			params :{param1:"2017-01-10",param2:'2017-01-12'},
+			method : "POST",
+			type : "json",
+			waiting : true,
+			ondata :function(){
+				judge_data = this.getResponseJSON();
+				//$("#judgetable").datagrid("loadData",judge_data);
+				editIndex = undefined;
+				function endEditing(){
+					if (editIndex == undefined){return true}
+					if ($('#judgetable').datagrid('validateRow', editIndex)){
+						var ed = $('#judgetable').datagrid('getEditors',editIndex);
+						
+						for(var i = 0, len = ed.length; i < len; i++){
+							$('#judgetable').datagrid('getRows')[editIndex][ed[i]["field"]] = (ed[i]["type"] == "combobox"?ed[i].target.combobox("getValue"):ed[i].target.val());
+						}
+						$("#judgetable").datagrid("updateRow",{index:editIndex,row:{approver:login}});
+						//var result = $(ed.target).combobox('getText');
+						//$('#judgetable').datagrid('getRows')[editIndex]['result'] = result;
+						$('#judgetable').datagrid('endEdit', editIndex);
+						_submit(2);
+						editIndex = undefined;
+						return true;
+					} else {
+						return false;
+					}
+				}
+				$("#judgetable").datagrid({
+					data: judge_data,
+					onClickRow:function(rowIndex, rowData){
+						if (editIndex != rowIndex){
+							if (endEditing()){
+								//$('#judgetable').datagrid('acceptChanges');
+								$('#judgetable').datagrid('selectRow', rowIndex)
+										.datagrid('beginEdit', rowIndex);
+								editIndex = rowIndex;
+							} else {
+								$('#judgetable').datagrid('selectRow', editIndex);
+							}
+						}
+					}
+				});
+				
+			}
+		})
+	}
+	
+	//树状图为空的情况
+	function TreeFormatter(value, row, index){
+		if(value == null){
+			return '-';
+		}else{
+			return value;
+		}
+	}
+	
+	//申诉按钮
+	function FieldForamtter(value, row, index){
+		if(row.disabled){
+			return "<span style = 'text-decoration:underline;'>"+value+"</span>"
+		}else{
+			return "<span style = 'color:red;text-decoration:underline;cursor:pointer'>"+value+"</span>"
+		}
+	}
+	
+	//实时差错明细下周
+	function DoPrint(){
+		exportcsv(2212,{"param1":$("#lostrate").treegrid("getSelected")["name"]});
+	}
+	
+        
+</script>
+
+<body>
+    <div class="easyui-tabs" style="width:100%;height:100%;" fit='true'>
+		<div title = '疑似遗失' class="easyui-layout" fit= "true" >
+			<div data-options = "region:'center'" width = "60%" border = "false">
+				<div class = "easyui-layout" fit = "true" >
+					<div data-options = "region: 'center'" height = '50%'>
+					<table class="easyui-treegrid" data-options = "singleSelect:true,toolbar:'#tb'" id = "lostrate" border = "false">
+						<thead>
+							<tr>
+								<th field = "name" width="200">名称</th>
+								<th field = "d_lost_amount" width="80" align="center" formatter = "TreeFormatter">揽收遗失件数</th>
+								<th field = "d_lost_rate" width="80" align="center" formatter = "TreeFormatter">揽收遗失率</th>
+								<th field = 't_lost_amount' width="80" align="center" formatter = "TreeFormatter">中转遗失件数</th>
+								<th field = 't_lost_rate' width="80" align="center" formatter = "TreeFormatter">中转遗失率</th>
+								<th field = 'a_lost_amount' width="80" align="center" formatter = "TreeFormatter">派送遗失件数</th>
+								<th field = 'a_lost_rate' width="80" align="center" formatter = "TreeFormatter">派送遗失率</th>
+							</tr>
+						</thead>
+					</table>
+					
+					<div id = "tb">
+					    从日期&nbsp;<input class="easyui-datebox"  style="width:15%" id="_date_from">&nbsp;&nbsp;
+						到日期&nbsp;<input class="easyui-datebox"  style="width:15%" id="_date_to">&nbsp;&nbsp;
+						分公司&nbsp;<input class="easyui-combobox"  style="width:15%" id="_org">&nbsp;&nbsp;
+						<a href="#" class="easyui-linkbutton" iconCls="icon-search" style="width:40" onclick="DoSearch()">查找</a>
+					</div>
+					</div>
+					<div data-options = "region: 'south',split: true" height = '50%'>
+						<table title = "<span>申诉明细<span style = 'color:red'>(双击树状图加载数据,双击申诉列进入申诉流程)</span></span>" class="easyui-datagrid" id = "appealtable" fit = "true" border = "false">
+							<thead data-options="frozen:true">
+								<tr>
+									<th data-options="field:'duty_code'" width="120" align="center">稽核编号</th>
+									<th data-options="field:'scan_code'" width="120" align="center">子单号</th>
+									<th data-options="field:'code'" width="120" align="center">主单号</th>
+								</tr>
+							</thead>
+							<thead>
+								<tr>
+									<th data-options="field:'duty_site_name'" width="90" align="center">责任方</th>
+									<th data-options="field:'duty_type'" width="100" align="center">责任来源</th>
+									<th data-options="field:'duty_amount'" width="60" align="center">责任件数</th>
+									<th data-options="field:'duty_money'" width="60" align="center">责任金额</th>
+									<th data-options="field:'appeal_status'" width="60" align="center" formatter = "FieldForamtter">是否申诉</th>
+									<th data-options="field:'result'" width="60" align="center">审批结果</th>
+									<th data-options="field:'reason'" width="140" align="center">申诉原因</th>
+									<th data-options="field:'suggestion'" width="140" align="center">审批意见</th>
+								</tr>
+							</thead>
+						</table>
+					</div>
+				</div>
+			</div>
+			<div title="<span>实时差错明细<span style = 'color:red'>(双击树状图加载数据,红、黄、绿分别表示72、48、24小时疑似遗失)</span></span><span style = 'color:red;text-decoration:underline;float:right;cursor:pointer' onclick='DoPrint()'>下载</span>" data-options = "region:'east', collapsible:false,split:true" width = "40%">
+				<table  class="easyui-datagrid" id="gaptable" fit = "true" border= "false">
+					<thead>
+						<tr>
+							<th data-options="field:'子单号'" width="120" align="center">子单号</th>
+							<th data-options="field:'主单号'" width="90" align="center">主单号</th>
+							<th data-options="field:'责任方'" width="80" align="center">责任方</th>
+							<th data-options="field:'判责时间'" width="130" align="center">判责时间</th>
+							<th data-options="field:'遗失类型'" width="110" align="center">遗失类型</th>
+							
+						</tr>
+					</thead>
+				</table>
+			</div>
+			<div id="appealdlg" title="申诉界面" class="easyui-dialog" style="width:20%;height:75%" closed = "true" buttons = "#dlgbnt">
+				<form id = "fm" class = "easyui-form" method="post" data-options = "novalidate:true" fit = "true">
+					<table>
+						<tr>
+							<td>稽核编号</td>
+							<td><input class = "easyui-textbox" name = "duty_code" readonly = "readonly"/></td>
+						</tr>
+						<tr>
+							<td>子单号</td>
+							<td><input class = "easyui-textbox" name = "scan_code" readonly = "readonly"/></td>
+						</tr>
+						<tr>
+							<td>主单号</td>
+							<td><input class = "easyui-textbox" name = "code" readonly = "readonly"/></td>
+						</tr>
+						<tr>
+							<td>责任方</td>
+							<td><input class = "easyui-textbox" name = "duty_site_name" readonly = "readonly"/></td>
+						</tr>
+						<tr>
+							<td>责任来源</td>
+							<td><input class = "easyui-textbox" name = "duty_type" readonly = "readonly"/></td>
+						</tr>
+						<tr>
+							<td>责任件数</td>
+							<td><input class = "easyui-textbox" name = "duty_amount" readonly = "readonly"/></td>
+						</tr>
+						<tr>
+							<td>负激励金额</td>
+							<td><input class = "easyui-textbox" name = "duty_money" readonly = "readonly"/></td>
+						</tr>
+						<tr>
+							<td>申诉人</td>
+							<td><input class = "easyui-textbox" id = "appeal_person" name = "appeal_person" readonly = "readonly"/></td>
+						</tr>
+						<tr>
+							<td>申诉原因</td>
+							<td><textarea style = "height:60px;width:95%" name = "reason" required></textarea></td>
+						</tr>
+					</table>
+				</form>
+		    </div>
+			<div id = "dlgbnt">
+				<a href="#" class="easyui-linkbutton" iconCls="icon-ok" onclick="_submit(1)" >提交</a>
+			</div>
+			<div id="judgedlg" title="审批明细" class="easyui-dialog" style="width:80%;height:70%" closed = "true">
+				<table class = "easyui-datagrid" fit = "true" id = "judgetable" data-options = "singleSelect:true">
+					<thead>
+						<tr>
+							<th data-options="field:'duty_code'" width="120" align="center">稽核编号</th>
+							<th data-options="field:'scan_code'" width="120" align="center">子单号</th>
+							<th data-options="field:'code'" width="120" align="center">主单号</th>
+							<th data-options="field:'duty_site_name'" width="90" align="center">责任方</th>
+							<th data-options="field:'duty_type'" width="100" align="center">责任来源</th>
+							<th data-options="field:'duty_amount'" width="60" align="center">责任件数</th>
+							<th data-options="field:'duty_money'" width="60" align="center">负激励金额</th>
+							<th data-options="field:'reason'" width="140" align="center">申诉原因</th>
+							<th data-options="field:'result',editor:{type:'combobox',options:{panelHeight: 'auto',valueField:'id',textField:'name',data:[{id:'同意',name:'同意'},{id:'驳回',name:'驳回'}]}}" width="70" align="center">审批结果</th>
+							<th data-options="field:'suggestion',editor:'textbox'" width="140" align="center">审批意见</th>
+							<th data-options="field:'approver'" width="45" align="center">审批人</th>
+						</tr>
+					</thead>
+				</table>
+			</div>
+		</div>
+    </div>
+</body>
+</html>
